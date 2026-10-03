@@ -32,22 +32,37 @@ class GeminiProvider(LLMProvider):
         self.cached_working_model: Optional[str] = None
         self.api_versions = ["v1beta", "v1"]
 
+    async def _diagnose_key(self, client: httpx.AsyncClient, api_key: str) -> str:
+        """Queries Google's ListModels API to diagnose why models were not found."""
+        for ver in self.api_versions:
+            url = f"https://generativelanguage.googleapis.com/{ver}/models?key={api_key}"
+            try:
+                r = await client.get(url, timeout=8.0)
+                if r.status_code == 200:
+                    models = [m.get("name", "").replace("models/", "") for m in r.json().get("models", [])]
+                    supported = [m for m in models if "gemini" in m]
+                    return f"Key is valid! Supported models on this key: {', '.join(supported[:5]) if supported else 'No gemini models found'}"
+                else:
+                    err_msg = r.json().get("error", {}).get("message", r.text)
+                    return f"Google API Error ({r.status_code}): {err_msg}"
+            except Exception as e:
+                return f"Connection error: {str(e)}"
+        return "Could not reach Google Generative Language service."
+
     async def _discover_available_model(self, client: httpx.AsyncClient, api_key: str) -> Optional[str]:
         """Queries Google's ListModels API to find active models supported by this key."""
         for ver in self.api_versions:
             url = f"https://generativelanguage.googleapis.com/{ver}/models?key={api_key}"
             try:
-                r = await client.get(url, timeout=10.0)
+                r = await client.get(url, timeout=8.0)
                 if r.status_code == 200:
                     models = r.json().get("models", [])
                     gen_models = [
                         m["name"] for m in models 
                         if "generateContent" in m.get("supportedGenerationMethods", [])
                     ]
-                    # Clean 'models/' prefix if present
                     clean_names = [m.replace("models/", "") for m in gen_models]
                     
-                    # Preference priority
                     for candidate in ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-2.0-flash", "gemini-pro", "gemini-1.5-pro"]:
                         if candidate in clean_names:
                             return candidate
@@ -69,7 +84,6 @@ class GeminiProvider(LLMProvider):
         start_time = time.time()
         api_key = get_gemini_key(api_key_override)
         requested_model = model_override or self.cached_working_model or self.default_model
-        # Strip models/ prefix if accidentally passed
         model = requested_model.replace("models/", "")
 
         if not api_key:
@@ -78,7 +92,7 @@ class GeminiProvider(LLMProvider):
                 usage=UsageStats(),
                 latency_ms=0,
                 model_used=model,
-                error="GEMINI_API_KEY not found. Please paste it in the sidebar expander or set it in Streamlit secrets."
+                error="GEMINI_API_KEY not found. Please paste your Google AI Studio key in the sidebar."
             )
 
         # Build payload
@@ -101,12 +115,8 @@ class GeminiProvider(LLMProvider):
             payload["systemInstruction"] = {"parts": [{"text": system_message}]}
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Try primary requested model and version
             models_to_try = [model]
-            
-            # Common fallback aliases if 404 occurs
-            fallback_aliases = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro"]
-            for a in fallback_aliases:
+            for a in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro"]:
                 if a not in models_to_try:
                     models_to_try.append(a)
 
@@ -130,7 +140,6 @@ class GeminiProvider(LLMProvider):
                                 )
 
                             raw_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                            
                             cleaned_text = raw_text.strip()
                             if cleaned_text.startswith("```json"):
                                 cleaned_text = cleaned_text[7:]
@@ -164,11 +173,9 @@ class GeminiProvider(LLMProvider):
                             )
                         
                         elif res.status_code == 404:
-                            # Model not found in this version, proceed to next fallback
                             last_error = res.json().get("error", {}).get("message", res.text)
                             continue
                         elif res.status_code == 400 and "responseMimeType" in res.text:
-                            # Older models (like gemini-pro) don't support responseMimeType
                             payload["generationConfig"].pop("responseMimeType", None)
                             retry_res = await client.post(url, json=payload)
                             if retry_res.status_code == 200:
@@ -185,7 +192,6 @@ class GeminiProvider(LLMProvider):
                                     model_used=current_model
                                 )
                         else:
-                            # Quota, Auth, or Permission errors
                             err_msg = res.json().get("error", {}).get("message", res.text)
                             return GenerationResponse(
                                 content="",
@@ -204,34 +210,15 @@ class GeminiProvider(LLMProvider):
                         last_error = str(e)
                         continue
 
-            # If all standard fallbacks returned 404, query ListModels dynamically
-            discovered_model = await self._discover_available_model(client, api_key)
-            if discovered_model and discovered_model not in models_to_try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{discovered_model}:generateContent?key={api_key}"
-                try:
-                    res = await client.post(url, json=payload)
-                    if res.status_code == 200:
-                        self.cached_working_model = discovered_model
-                        raw_text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-                        try:
-                            parsed_content = json.loads(raw_text.strip())
-                        except Exception:
-                            parsed_content = raw_text
-                        return GenerationResponse(
-                            content=parsed_content,
-                            usage=UsageStats(prompt_tokens=50, completion_tokens=50, total_tokens=100),
-                            latency_ms=int((time.time() - start_time) * 1000),
-                            model_used=discovered_model
-                        )
-                except Exception:
-                    pass
+            # Query ListModels diagnostic check
+            diagnostic_msg = await self._diagnose_key(client, api_key)
 
             return GenerationResponse(
                 content="",
                 usage=UsageStats(),
                 latency_ms=int((time.time() - start_time) * 1000),
                 model_used=model,
-                error=f"Gemini Model '{model}' not accessible on your key: {last_error}"
+                error=f"Gemini Key Diagnostic: {diagnostic_msg}"
             )
 
     async def generate_stream(
