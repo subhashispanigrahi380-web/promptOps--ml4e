@@ -14,8 +14,9 @@ class ModelRouter:
             "gemini": GeminiProvider(default_model="gemini-1.5-flash"),
             "gemini-pro": GeminiProvider(default_model="gemini-1.5-pro"),
             "gemini-2.0": GeminiProvider(default_model="gemini-2.0-flash"),
-            "groq": GroqProvider(default_model="llama-3.3-70b-versatile"),
+            "groq": GroqProvider(default_model="llama-3.1-8b-instant"),
             "groq-fast": GroqProvider(default_model="llama-3.1-8b-instant"),
+            "groq-70b": GroqProvider(default_model="llama3-70b-8192"),
             "openai": OpenAIProvider(default_model="gpt-4o-mini"),
             "openai-quality": OpenAIProvider(default_model="gpt-4o"),
             "mock": MockProvider()
