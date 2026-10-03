@@ -1,120 +1,202 @@
-# PromptOps Platform
+# 🧪 PromptOps: Controlled LLM Generation & Evaluation Platform
 
-A **provider-agnostic controlled generation platform** that converts messy natural language instructions into reliable, validated, structured outputs — with caching, retries, routing, and a full experiment UI.
+A provider-agnostic, production-grade PromptOps platform that converts messy, unpredictable instructions into reliable, schema-validated structured outputs. Equipped with multi-model routing, automated repair feedback loops, prompt evaluation benchmarks, and full telemetry tracking.
 
-## Architecture Overview
+---
+
+## 🏗️ Architecture Overview
 
 ```
-User / UI
-    │
-    ▼
-FastAPI Backend (app/main.py)
-    │
-    ├── ModelRouter ──► MockLLM | LiteLLM (GPT-3.5 / GPT-4o)
-    │
-    ├── PromptRegistry (SQLite + Jinja2 versioned templates)
-    │
-    ├── GenerationService
-    │     ├── Cache Layer (SHA256 keyed, 5-min TTL)
-    │     ├── Validation (jsonschema)
-    │     └── Auto-Repair Loop (up to N retries)
-    │
-    └── Streaming Endpoint (/generate/stream)
-
-Streamlit UI (app/ui.py)
-    ├── Playground (Run + Telemetry)
-    ├── A/B Comparison
-    └── Prompt Registry Viewer + Add Form
+                                      +------------------------------------+
+                                      |         Streamlit Cloud UI         |
+                                      |     (Self-Contained & Cloud Native)|
+                                      +-----------------+------------------+
+                                                        |
+                                                        v
+                                          +----------------------------+
+                                          |     GenerationService      |
+                                          +-------------+--------------+
+                                                        |
+                 +-------------------+------------------+-------------------+-------------------+
+                 |                   |                                      |                   |
+                 v                   v                                      v                   v
+        +-----------------+ +-----------------+                    +-----------------+ +-----------------+
+        |  Cache Layer    | | PromptRegistry  |                    | ModelRouter     | | OutputValidator |
+        |  (SHA-256 / TTL)| | (SQLite + Jinja)|                    | (Multi-Provider)| |(JSONSchema/Pyd) |
+        +-----------------+ +-----------------+                    +--------+--------+ +-----------------+
+                                                                            |
+                                            +-------------------------------+-------------------------------+
+                                            |                               |                               |
+                                            v                               v                               v
+                                   +-----------------+             +-----------------+             +-----------------+
+                                   | GeminiProvider  |             |  GroqProvider   |             | OpenAIProvider  |
+                                   | (gemini-1.5/2.0)|             | (llama-3.3-70b) |             | (gpt-4o / mini) |
+                                   +-----------------+             +-----------------+             +-----------------+
+                                            |
+                                            v (Auto-Repair Loop if schema check fails)
+                                   +-----------------+
+                                   | Feedback Repair |
+                                   +-----------------+
 ```
 
-## Quick Start
+---
 
-```bash
-# 1. Clone and enter the project
+## ✨ Production Features
+
+1. **Clean Provider Abstraction (`app/services/providers/`)**:
+   - **Google Gemini**: Default provider via official Google v1beta API with native `application/json` structured response mode.
+   - **Groq**: Ultra-fast low-latency inference using Llama 3.3 70B & Llama 3.1 8B.
+   - **OpenAI**: GPT-4o and GPT-4o-mini with native JSON Object mode.
+   - **Mock**: High-fidelity deterministic mock provider for CI testing, offline development, and zero-key evaluation.
+
+2. **Pydantic Structured Outputs (`app/models/schemas.py`)**:
+   - Strict typing, field descriptions, and JSON schema generation.
+   - Automatic markdown fence stripping (` ```json ` cleaning).
+
+3. **5 Production Prompt Templates**:
+   - 📅 **Event Extraction (`event_extraction_v1`, `v2`)**: Extracts event title, date, time, venue, description, and attendees.
+   - 📇 **Contact Extraction (`contact_extraction_v1`)**: Ingests email signatures and business cards into structured CRM contacts.
+   - 📝 **Meeting Summary (`meeting_summary_v1`)**: Summarizes transcripts into key points, decisions, and action items with owners.
+   - ✅ **Task Extraction (`task_extraction_v1`)**: Converts sprint chats/notes into prioritized tasks (TASK-1, estimated hours, assignee).
+   - 💼 **Job Description Parser (`job_parser_v1`)**: Extracts role, compensation, skills, and responsibilities for ATS matching.
+
+4. **Resilience & Auto-Repair Feedback Loop**:
+   - Intercepts invalid JSON or schema violations.
+   - Injects the exact validation error back into the model prompt and requests a targeted correction.
+   - Retries up to $N$ attempts while aggregating total latency, token usage, and cost.
+
+5. **Prompt Evaluation & Quality Benchmarks (`app/services/evaluator.py`)**:
+   - Automated test harness running multi-case domain test suites.
+   - Reports Pass Rate, Schema Compliance, Latency distribution, and Cost.
+   - Persists evaluation history in SQLite.
+
+6. **Comprehensive Telemetry**:
+   - Real-time token tracking (Prompt, Completion, Total).
+   - Live estimated cost per call using per-model pricing tables.
+   - Millisecond-level latency profiling.
+   - Validation status tags: `PASSED`, `AUTO_REPAIRED`, `FAILED`, `SKIPPED`.
+
+7. **Streamlit Cloud Native**:
+   - Fully operable standalone on Streamlit Cloud without running an external server.
+   - Reads secrets from `st.secrets`, `.env`, or runtime user input.
+
+---
+
+## 🚀 Setup & Execution Guide
+
+### 1. Local Environment Setup
+```powershell
+# Navigate to project
 cd promptops
 
-# 2. Create virtual environment
+# Create virtual environment
 python -m venv venv
 venv\Scripts\activate          # Windows
-# source venv/bin/activate     # Linux/Mac
+# source venv/bin/activate     # macOS / Linux
 
-# 3. Install dependencies
+# Install dependencies
 pip install -r requirements.txt
+```
 
-# 4. Set up environment (optional — needed for real LLM providers)
+### 2. Configure Environment Variables
+Copy `.env.example` to `.env`:
+```powershell
 copy .env.example .env
-# Edit .env and add your API keys
+```
+Fill in your API keys (optional — Mock mode works out of the box with zero keys):
+```ini
+GEMINI_API_KEY=AIzaSy...
+GROQ_API_KEY=gsk_...
+OPENAI_API_KEY=sk-...
+```
 
-# 5. Start the platform
+### 3. Run the Platform
+
+#### Option A: Streamlit UI (Recommended)
+```powershell
+streamlit run app/ui.py
+```
+Open **http://localhost:8501** in your browser.
+
+#### Option B: Standalone FastAPI Backend
+```powershell
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+Interactive API documentation available at **http://localhost:8000/docs**.
+
+#### Option C: Simultaneous Startup
+```powershell
 python run_all.py
 ```
 
-| Service | URL |
-|---|---|
-| Streamlit UI | http://localhost:8501 |
-| FastAPI Docs | http://localhost:8000/docs |
+---
 
-## Run Tests
+## ☁️ Streamlit Cloud Deployment Guide
 
-```bash
-# All unit tests
+1. Push your repository to GitHub:
+   ```bash
+   git add .
+   git commit -m "feat: production PromptOps upgrade"
+   git push origin main
+   ```
+2. Log in to [share.streamlit.io](https://share.streamlit.io).
+3. Select your repository `subhashispanigrahi380-web/promptOps--ml4e`.
+4. Set Main file path: `app/ui.py`.
+5. Under **Advanced Settings -> Secrets**, add your API keys:
+   ```toml
+   GEMINI_API_KEY = "your-gemini-api-key"
+   GROQ_API_KEY = "your-groq-api-key"
+   OPENAI_API_KEY = "your-openai-api-key"
+   ```
+6. Click **Deploy**! Your app will boot immediately and run in standalone cloud mode.
+
+---
+
+## 🧪 Automated Testing & Evidence
+
+Run the full pytest suite (54 test cases covering validation, repair loops, timeouts, parameterization):
+```powershell
 pytest tests/ -v
+```
 
-# Regression report (50 cases)
+Execute the 50-case repeatable benchmark regression runner:
+```powershell
 python tests/regression_runner.py
 ```
 
-## Deployment (Docker)
+---
 
-```bash
-docker-compose up --build
-```
-
-## Project Structure
+## 📁 Repository Structure
 
 ```
 promptops/
 ├── app/
-│   ├── main.py                  # FastAPI entrypoint
-│   ├── ui.py                    # Streamlit frontend
+│   ├── main.py                  # FastAPI REST endpoints
+│   ├── ui.py                    # Streamlit cloud-native interface (Playground, A/B, Evaluator, Registry)
 │   ├── models/
-│   │   └── schemas.py           # Pydantic models
+│   │   └── schemas.py           # Domain schemas (Event, Contact, Meeting, Task, Job) + Telemetry
 │   └── services/
-│       ├── llm_base.py          # Abstract provider interface
-│       ├── mock_llm.py          # Deterministic mock backend
-│       ├── litellm_provider.py  # Real LLM backend (LiteLLM)
-│       ├── router.py            # Task-type routing logic
-│       ├── registry.py          # Versioned prompt registry
-│       ├── generation.py        # Orchestration + repair loop
-│       ├── validator.py         # JSON schema validator
-│       └── cache.py             # In-memory response cache
+│       ├── cache.py             # SHA-256 keyed cache with TTL
+│       ├── evaluator.py         # Prompt evaluation suite and historical logger
+│       ├── generation.py        # Orchestration, Jinja2 rendering, and auto-repair retry loop
+│       ├── registry.py          # Versioned SQLite prompt registry seeded with 5 templates
+│       ├── router.py            # Dynamic ModelRouter (Gemini, Groq, OpenAI, Mock)
+│       ├── validator.py         # JSON Schema and Pydantic validator
+│       └── providers/
+│           ├── base.py          # Abstract LLMProvider interface & cost estimator
+│           ├── gemini_provider.py # Direct Gemini API provider
+│           ├── openai_compatible.py # Groq & OpenAI provider
+│           └── mock_provider.py # High-fidelity deterministic mock provider
 ├── tests/
-│   ├── test_core.py             # Registry + validator tests
-│   ├── test_generation.py       # Generation + repair loop tests
-│   └── regression_runner.py     # 50-case regression report
+│   ├── test_core.py             # Unit tests for registry and validation
+│   ├── test_generation.py       # 50+ test cases testing repair loops, timeouts, and schemas
+│   └── regression_runner.py     # Repeatable 50-case benchmark runner
 ├── docs/
-│   ├── ARCHITECTURE.md          # Design decisions
-│   ├── FAILURE_LOG.md           # Known failure modes
-│   └── AI_USAGE.md              # AI tool usage log
-├── Dockerfile
-├── docker-compose.yml
-├── pytest.ini
-├── requirements.txt
-├── .env.example
-└── run_all.py
+│   ├── ARCHITECTURE.md          # Architectural justification and design choices
+│   ├── FAILURE_LOG.md           # Failure modes and mitigation catalog
+│   └── AI_USAGE.md              # AI verification audit
+├── pytest.ini                   # Asyncio test configuration
+├── requirements.txt             # Production dependency list
+├── .env.example                 # Environment variable template
+└── run_all.py                   # Local dual-server launcher
 ```
-
-## Core Requirements Coverage
-
-| Requirement | Implementation |
-|---|---|
-| Common model interface | `app/services/llm_base.py` |
-| Two backends | `mock_llm.py` + `litellm_provider.py` |
-| Streaming output | `/generate/stream` endpoint |
-| Versioned prompt registry | `registry.py` + SQLite |
-| JSON schema validation | `validator.py` (jsonschema) |
-| Repair + retry | `generation.py` repair loop |
-| Caching | `cache.py` (SHA256 + TTL) |
-| Token + latency + cost tracking | `UsageStats` in every response |
-| Routing by task type | `router.py` |
-| Experiment UI | `ui.py` (Streamlit) |

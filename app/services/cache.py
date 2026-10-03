@@ -17,6 +17,9 @@ def get_cached(prompt_id: str, variables: Dict, task_type: Optional[str]) -> Opt
     if entry:
         response, ts = entry
         if time.time() - ts < CACHE_TTL_SECONDS:
+            # Return copy with cached set to True
+            if hasattr(response, "model_copy"):
+                return response.model_copy(update={"cached": True})
             return response  # Cache hit
         else:
             del _cache[key]  # Expired
@@ -25,6 +28,10 @@ def get_cached(prompt_id: str, variables: Dict, task_type: Optional[str]) -> Opt
 def set_cache(prompt_id: str, variables: Dict, task_type: Optional[str], response: Any):
     key = _make_key(prompt_id, variables, task_type)
     _cache[key] = (response, time.time())
+
+def clear_cache():
+    """Clear all in-memory cached entries."""
+    _cache.clear()
 
 def cache_stats() -> Dict:
     return {"cached_entries": len(_cache), "ttl_seconds": CACHE_TTL_SECONDS}

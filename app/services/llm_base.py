@@ -1,25 +1,5 @@
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, AsyncGenerator
+# Backward-compatibility alias
+from app.services.providers.base import LLMProvider, MODEL_PRICING, estimate_cost
 from app.models.schemas import GenerationResponse
 
-class LLMProvider(ABC):
-    @abstractmethod
-    async def generate(
-        self, 
-        prompt: str, 
-        system_message: Optional[str] = None, 
-        json_schema: Optional[Dict[str, Any]] = None,
-        **kwargs
-    ) -> GenerationResponse:
-        """Generate a complete response."""
-        pass
-
-    @abstractmethod
-    async def generate_stream(
-        self, 
-        prompt: str, 
-        system_message: Optional[str] = None,
-        **kwargs
-    ) -> AsyncGenerator[str, None]:
-        """Generate a streaming text response."""
-        pass
+__all__ = ["LLMProvider", "MODEL_PRICING", "estimate_cost", "GenerationResponse"]

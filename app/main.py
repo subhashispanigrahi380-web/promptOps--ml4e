@@ -1,86 +1,63 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from app.models.schemas import GenerationRequest, GenerationResponse
 from app.services.registry import PromptRegistry, PromptVersion
 from app.services.generation import GenerationService
 from app.services.router import ModelRouter
+from app.services.evaluator import PromptEvaluator
 from app.services import cache as Cache
 import uvicorn
 
 app = FastAPI(
-    title="PromptOps API",
-    description="Provider-agnostic platform for controlled structured generation.",
-    version="1.0.0"
+    title="PromptOps Production API",
+    description="Provider-agnostic platform converting messy instructions into reliable, validated structured outputs.",
+    version="2.0.0"
 )
 
-# ── Startup: seed registry ─────────────────────────────────
 registry = PromptRegistry()
-
-if not registry.get_prompt("extract_event"):
-    # Version 1 — basic extraction
-    registry.add_prompt(
-        name="extract_event",
-        template="Extract the event details from the following text: {{ text }}",
-        description="v1 - Simple event extraction",
-        schema_def={
-            "type": "object",
-            "properties": {
-                "title": {"type": "string"},
-                "date":  {"type": "string"}
-            },
-            "required": ["title", "date"]
-        }
-    )
-    # Version 2 — richer extraction with location + attendees
-    registry.add_prompt(
-        name="extract_event",
-        template=(
-            "You are an expert assistant. Extract structured event details "
-            "from this text: {{ text }}\n"
-            "Return title, date, location and attendees."
-        ),
-        description="v2 - Rich extraction with location and attendees",
-        schema_def={
-            "type": "object",
-            "properties": {
-                "title":     {"type": "string"},
-                "date":      {"type": "string"},
-                "location":  {"type": "string"},
-                "attendees": {"type": "string"}
-            },
-            "required": ["title", "date", "location", "attendees"]
-        }
-    )
-
 router = ModelRouter()
+evaluator = PromptEvaluator(registry=registry, router=router)
 
-# ── Request model for adding prompts ───────────────────────
 class AddPromptRequest(BaseModel):
     name: str
     template: str
     description: Optional[str] = ""
     schema_def: Optional[Dict[str, Any]] = None
 
-# ── Routes ─────────────────────────────────────────────────
+class EvaluateRequest(BaseModel):
+    prompt_id: str
+    provider_name: str = "gemini"
+    model_override: Optional[str] = None
+    api_key_override: Optional[str] = None
+
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "cache": Cache.cache_stats()}
+    return {
+        "status": "healthy",
+        "service": "PromptOps Production Platform",
+        "cache": Cache.cache_stats(),
+        "available_providers": ["gemini", "groq", "openai", "mock"]
+    }
 
 @app.post("/generate", response_model=GenerationResponse)
 async def generate_text(request: GenerationRequest):
-    provider = router.route(request.task_type or "mock")
-    service  = GenerationService(provider=provider, registry=registry)
+    provider = router.route(request.task_type or "gemini", request.api_key_override)
+    service  = GenerationService(provider=provider, registry=registry, max_retries=request.max_retries)
     return await service.generate(request)
 
 @app.post("/generate/stream")
 async def generate_stream(request: GenerationRequest):
     """Token-by-token streaming endpoint."""
-    provider = router.route(request.task_type or "mock")
+    provider = router.route(request.task_type or "gemini", request.api_key_override)
 
     async def token_generator():
-        async for chunk in provider.generate_stream(prompt=request.prompt_id):
+        async for chunk in provider.generate_stream(
+            prompt=request.prompt_id,
+            model_override=request.model_override,
+            api_key_override=request.api_key_override
+        ):
             yield chunk
 
     return StreamingResponse(token_generator(), media_type="text/plain")
@@ -96,20 +73,21 @@ def add_prompt(request: AddPromptRequest):
 
 @app.get("/registry/list")
 def list_prompts():
-    import sqlite3, json
-    conn = sqlite3.connect(registry.db_path)
-    cur  = conn.cursor()
-    cur.execute("SELECT id, name, version, template, description, schema_def FROM prompts")
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {
-            "id": r[0], "name": r[1], "version": r[2],
-            "template": r[3], "description": r[4],
-            "schema_def": json.loads(r[5]) if r[5] else None
-        }
-        for r in rows
-    ]
+    prompts = registry.list_all_prompts()
+    return [p.model_dump() if hasattr(p, "model_dump") else p.dict() for p in prompts]
+
+@app.post("/evaluate")
+async def evaluate_prompt(request: EvaluateRequest):
+    return await evaluator.run_evaluation(
+        prompt_id=request.prompt_id,
+        provider_name=request.provider_name,
+        model_override=request.model_override,
+        api_key_override=request.api_key_override
+    )
+
+@app.get("/evaluations/history")
+def get_evaluations(limit: int = 20):
+    return registry.get_evaluation_history(limit=limit)
 
 @app.get("/cache/stats")
 def get_cache_stats():

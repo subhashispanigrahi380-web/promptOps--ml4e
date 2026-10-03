@@ -31,6 +31,13 @@ class RepairMockLLM(LLMProvider):
     async def generate_stream(self, prompt: str, system_message=None, **kwargs):
         yield "chunk"
 
+@pytest.fixture(autouse=True)
+def clean_cache():
+    from app.services import cache
+    cache.clear_cache()
+    yield
+    cache.clear_cache()
+
 @pytest.fixture
 def registry():
     reg = PromptRegistry(db_path=":memory:")
