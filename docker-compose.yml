@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  promptops:
+    build: .
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    volumes:
+      - ./registry.db:/app/registry.db
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY} # Add your API keys here

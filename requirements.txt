@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pydantic
+litellm
+jsonschema
+jinja2
+pytest
+pytest-asyncio
+streamlit
+sqlite3-api
+python-dotenv
+tenacity
+pandas
