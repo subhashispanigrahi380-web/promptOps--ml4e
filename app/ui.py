@@ -29,16 +29,14 @@ st.set_page_config(
 )
 
 # ── IN-PROCESS PLATFORM ENGINE INITIALIZATION ───────────────
-# Ensures 100% self-contained operation on Streamlit Cloud with zero localhost dependency
 @st.cache_resource
-def get_platform_services():
+def get_registry():
     db_path = os.path.join(parent_dir, "registry.db")
-    reg = PromptRegistry(db_path=db_path)
-    rtr = ModelRouter()
-    evl = PromptEvaluator(registry=reg, router=rtr)
-    return reg, rtr, evl
+    return PromptRegistry(db_path=db_path)
 
-registry, router, evaluator = get_platform_services()
+registry = get_registry()
+router = ModelRouter()
+evaluator = PromptEvaluator(registry=registry, router=router)
 
 # ── PRESET SAMPLE DATA FOR THE 5 TEMPLATES ─────────────────
 SAMPLE_INPUTS = {
