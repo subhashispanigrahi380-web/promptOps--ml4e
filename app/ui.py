@@ -183,6 +183,7 @@ with tab_gen:
         "Jinja2 Template Variables",
         value=default_sample,
         height=140,
+        key=f"vars_input_{selected_prompt_name}",
         help="Input JSON dictionary with keys matching Jinja2 variables in the template."
     )
 
