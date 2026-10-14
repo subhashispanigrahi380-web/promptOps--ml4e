@@ -20,10 +20,11 @@ class GenerationService:
 
     async def generate(self, request: GenerationRequest) -> GenerationResponse:
         # 1. Cache Check
-        cached_resp = Cache.get_cached(request.prompt_id, request.variables, request.task_type)
-        if cached_resp:
-            cached_resp.cached = True
-            return cached_resp
+        if request.use_cache:
+            cached_resp = Cache.get_cached(request.prompt_id, request.variables, request.task_type)
+            if cached_resp:
+                cached_resp.cached = True
+                return cached_resp
 
         # 2. Retrieve Prompt Version
         prompt_parts = request.prompt_id.rsplit('_v', 1)

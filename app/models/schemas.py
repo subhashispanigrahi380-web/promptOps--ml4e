@@ -81,6 +81,7 @@ class GenerationRequest(BaseModel):
     api_key_override: Optional[str] = Field(default=None, description="Optional runtime API key")
     stream: bool = Field(default=False, description="Streaming mode flag")
     max_retries: int = Field(default=2, description="Max auto-repair retry attempts on validation failure")
+    use_cache: bool = Field(default=True, description="Whether to check and update in-memory cache")
 
 class GenerationResponse(BaseModel):
     content: Union[Dict[str, Any], str] = Field(description="Structured JSON result or generated text")

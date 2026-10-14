@@ -101,7 +101,14 @@ with st.sidebar:
         help="If generated JSON fails schema validation, the system feeds the validation error back to the model to repair."
     )
 
-    enable_cache = st.toggle("Enable Response Caching", value=True)
+    col_c1, col_c2 = st.columns([2, 1])
+    with col_c1:
+        enable_cache = st.toggle("Enable Caching", value=False, help="Cache identical responses for 5 minutes.")
+    with col_c2:
+        if st.button("🗑️ Clear", help="Wipe all cached entries"):
+            from app.services import cache
+            cache.clear_cache()
+            st.toast("Cache wiped clean!", icon="🗑️")
 
 # Helper function to resolve active API key
 def resolve_api_key(provider_name: str) -> str:
@@ -115,7 +122,7 @@ def resolve_api_key(provider_name: str) -> str:
     return ""
 
 # Helper to execute generation in async event loop
-def run_generation_sync(prompt_id: str, variables: dict, provider_name: str, max_retries: int):
+def run_generation_sync(prompt_id: str, variables: dict, provider_name: str, max_retries: int, use_cache: bool = True):
     api_key = resolve_api_key(provider_name)
     provider = router.route(provider_name, api_key_override=api_key)
     service = GenerationService(provider=provider, registry=registry, max_retries=max_retries)
@@ -125,7 +132,8 @@ def run_generation_sync(prompt_id: str, variables: dict, provider_name: str, max
         variables=variables,
         task_type=provider_name,
         api_key_override=api_key,
-        max_retries=max_retries
+        max_retries=max_retries,
+        use_cache=use_cache
     )
     
     loop = asyncio.new_event_loop()
@@ -203,7 +211,8 @@ with tab_gen:
                 prompt_id=selected_version_obj.id,
                 variables=parsed_variables,
                 provider_name=selected_provider,
-                max_retries=max_repair_retries
+                max_retries=max_repair_retries,
+                use_cache=enable_cache
             )
 
         # Telemetry Display
@@ -283,8 +292,8 @@ with tab_compare:
             st.stop()
 
         with st.spinner("Executing both configurations concurrently..."):
-            res_a = run_generation_sync(cfg_a_prompt, cmp_vars, cfg_a_model, max_repair_retries)
-            res_b = run_generation_sync(cfg_b_prompt, cmp_vars, cfg_b_model, max_repair_retries)
+            res_a = run_generation_sync(cfg_a_prompt, cmp_vars, cfg_a_model, max_repair_retries, use_cache=False)
+            res_b = run_generation_sync(cfg_b_prompt, cmp_vars, cfg_b_model, max_repair_retries, use_cache=False)
 
         st.divider()
         out_a, out_b = st.columns(2)
